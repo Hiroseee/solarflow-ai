@@ -1,0 +1,9 @@
+{
+  "base_url": "https://fluxo-solar-crm.pages.dev/teste/",
+  "allowed_edge_function": "crm-staging-v55-seller-timeline-fix",
+  "expected_staging_artifact": "baseline-1.0-staging-phase0-r1-e2e-relations",
+  "expected_staging_md5": "ffcb0358ce7bd94510d1a6d8bf133793",
+  "storage_state": "e2e/phase0/.auth/phase0.storage-state.json",
+  "network_evidence": "e2e/phase0/.evidence/network.jsonl",
+  "run_state": "e2e/phase0/.state/current-run.json"
+}
