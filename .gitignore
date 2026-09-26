@@ -1,0 +1,8 @@
+# Phase0 E2E local-only sensitive/runtime artifacts
+e2e/phase0/.auth/
+e2e/phase0/.state/
+e2e/phase0/.evidence/
+e2e/phase0/playwright-report/
+e2e/phase0/test-results/
+e2e/phase0/traces/
+*.storage-state.json
