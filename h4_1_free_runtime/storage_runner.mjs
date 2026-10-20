@@ -60,6 +60,6 @@ createServer(async(req,res)=>{
     state.result=result; return result;
   };
   const first=await gateFn();
-  state.result=first; state.phase="PASS";
- }catch(e){state.error=e.message;state.phase="FAIL";console.error(e)}
+  state.result=first; state.phase="PASS"; console.log("STORAGE_GATE_RESULT",JSON.stringify(state));
+ }catch(e){state.error=e.message;state.phase="FAIL";console.error(e);console.log("STORAGE_GATE_RESULT",JSON.stringify(state))}
 })();
