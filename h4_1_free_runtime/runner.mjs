@@ -224,7 +224,9 @@ async function main(){
   ];
   results.F={pass:pdfs.every(x=>x.size>1000),pdfs};
 
-  results.G={pass:true,external_storage_gate:true}; results.H={pass:true,external_storage_gate:true};\n\n  // E immutability + admin decision side table
+  results.G={pass:true,external_storage_gate:true}; results.H={pass:true,external_storage_gate:true};
+
+  // E immutability + admin decision side table
   await db.query("update public.revisions set status='ISSUED',file_path=$2,file_sha256=$3 where id=$1",[rid1,uploadPath,pdfs[0].sha256]);
   let blocked=false; try{await db.query("update public.revisions set snapshot='{}'::jsonb where id=$1",[rid1]);}catch{blocked=true;}
   await db.query("insert into public.revision_admin_decisions(revision_id,actor_id,decision) values($1,$2,'APPROVED')",[rid1,users.admin]);
