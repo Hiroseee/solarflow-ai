@@ -92,7 +92,7 @@ async function main(){
   await waitHttp(API+"/rest/v1/",{apikey:ANON});
 
   const db=new Client({connectionString:DB}); await db.connect();
-  await db.query(\`
+  await db.query(`
   create extension if not exists pgcrypto;
   create table if not exists public.opportunities(id uuid primary key default gen_random_uuid(), name text not null);
   create table if not exists public.profiles(user_id uuid primary key, role text not null check(role in ('seller','admin','director')));
@@ -159,7 +159,7 @@ async function main(){
   create policy revision_select on public.revisions for select to authenticated using (
     exists(select 1 from public.budgets b where b.id=budget_id and (b.seller_id=auth.uid() or exists(select 1 from public.profiles p where p.user_id=auth.uid() and p.role in ('admin','director'))))
   );
-  \`);
+  `);
 
   const svc=createClient(API,SERVICE,{auth:{persistSession:false}});
   const emails=["seller@h41.local","admin@h41.local","director@h41.local"];
@@ -224,7 +224,7 @@ async function main(){
   const admin=createClient(API,ANON,{auth:{persistSession:false}});
   await seller.auth.signInWithPassword({email:emails[0],password:"H41-Test-Only-!9"});
   await admin.auth.signInWithPassword({email:emails[1],password:"H41-Test-Only-!9"});
-  await db.query(\`
+  await db.query(`
     drop policy if exists proposal_insert on storage.objects;
     create policy proposal_insert on storage.objects for insert to authenticated with check (bucket_id='proposals');
     drop policy if exists proposal_select on storage.objects;
@@ -241,7 +241,7 @@ async function main(){
         or exists(select 1 from public.profiles p where p.user_id=auth.uid() and p.role in ('admin','director'))
       )
     );
-  \`);
+  `);
   const uploadPath=users.seller+"/closed.pdf";
   const buf=readFileSync(pdfs[0].file);
   const up=await seller.storage.from("proposals").upload(uploadPath,buf,{contentType:"application/pdf",upsert:true});
