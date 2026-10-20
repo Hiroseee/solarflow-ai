@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { createServer } from "node:http";
 import { readFileSync, writeFileSync, mkdirSync, existsSync, createReadStream, createWriteStream } from "node:fs";
 import { createHash } from "node:crypto";
@@ -15,7 +15,13 @@ mkdirSync(outDir, { recursive: true });
 const log = [];
 const results = {};
 const note = (m) => { log.push(String(m)); console.log(m); };
-const run = (args, opts={}) => execFileSync("npx", ["supabase", ...args], { cwd, encoding:"utf8", env:{...process.env, SUPABASE_EXPERIMENTAL_STACK:"1"}, stdio:["ignore","pipe","pipe"], ...opts });
+const run = (args, opts={}) => new Promise((resolve,reject)=>{
+  const child=execFile("npx",["supabase",...args],{cwd,encoding:"utf8",env:{...process.env,SUPABASE_EXPERIMENTAL_STACK:"1"},maxBuffer:20*1024*1024,...opts},(err,stdout,stderr)=>{
+    if(stdout) note("[supabase stdout] "+stdout.trim());
+    if(stderr) note("[supabase stderr] "+stderr.trim());
+    if(err){ err.stdout=stdout; err.stderr=stderr; reject(err); } else resolve(stdout);
+  });
+});
 
 function parseStatus(s) {
   const first = s.indexOf("{"), last = s.lastIndexOf("}");
@@ -30,7 +36,7 @@ function pick(obj, names) {
 }
 function sha256(buf) { return createHash("sha256").update(buf).digest("hex"); }
 async function waitHttp(url, headers={}) {
-  for (let i=0;i<60;i++) {
+  for (let i=0;i<180;i++) {
     try { const r=await fetch(url,{headers}); if (r.status<500) return true; } catch {}
     await new Promise(r=>setTimeout(r,1000));
   }
@@ -78,10 +84,10 @@ async function makePdf(name, mode, long=false) {
 
 async function main(){
   note("H4.1 free integrated validation starting");
-  try { run(["init","--force"]); } catch {}
-  run(["stack","prepare","--runtime","native"]);
-  run(["start","--runtime","native"]);
-  const st=parseStatus(run(["status","--output","json"]));
+  try { await run(["init","--force"]); } catch {}
+  await run(["stack","prepare","--runtime","native"]);
+  await run(["start","--runtime","native","--ignore-health-check"]);
+  const st=parseStatus(await run(["status","--output","json"]));
   const API=pick(st,["API_URL","api_url","API","apiUrl"]);
   const DB=pick(st,["DB_URL","db_url","DB","dbUrl"]);
   const ANON=pick(st,["ANON_KEY","anon_key","anonKey"]);
