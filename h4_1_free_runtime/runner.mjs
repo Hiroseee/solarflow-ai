@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createServer } from "node:http";
-import { readFileSync, writeFileSync, mkdirSync, existsSync, createReadStream } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, createReadStream, createWriteStream } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import pg from "pg";
@@ -40,7 +40,7 @@ async function makePdf(name, mode, long=false) {
   const file=path.join(outDir,name);
   await new Promise((resolve,reject)=>{
     const doc=new PDFDocument({size:"A4",margin:40});
-    const stream=(await import("node:fs")).createWriteStream(file);
+    const stream=createWriteStream(file);
     doc.pipe(stream);
     const W=515;
     doc.rect(40,40,W,52).fill("#111111");
@@ -255,7 +255,7 @@ async function main(){
   const zipPath=path.join(outDir,"proposal-archive.zip");
   const manifest={files:pdfs.slice(0,2).map(x=>({name:path.basename(x.file),sha256:x.sha256,size:x.size}))};
   writeFileSync(path.join(outDir,"manifest.json"),JSON.stringify(manifest,null,2));
-  await new Promise((resolve,reject)=>{ const fs=(await import("node:fs")).createWriteStream(zipPath); const ar=archiver("zip"); ar.pipe(fs); for(const p of pdfs.slice(0,2)) ar.file(p.file,{name:path.basename(p.file)}); ar.file(path.join(outDir,"manifest.json"),{name:"manifest.json"}); ar.finalize(); fs.on("close",resolve); ar.on("error",reject); });
+  await new Promise((resolve,reject)=>{ const fs=createWriteStream(zipPath); const ar=archiver("zip"); ar.pipe(fs); for(const p of pdfs.slice(0,2)) ar.file(p.file,{name:path.basename(p.file)}); ar.file(path.join(outDir,"manifest.json"),{name:"manifest.json"}); ar.finalize(); fs.on("close",resolve); ar.on("error",reject); });
   const del=await seller.storage.from("proposals").remove([uploadPath]); if(del.error) throw del.error;
   const restore=await seller.storage.from("proposals").upload(uploadPath,buf,{contentType:"application/pdf",upsert:true}); if(restore.error) throw restore.error;
   const down=await seller.storage.from("proposals").download(uploadPath); if(down.error) throw down.error;
