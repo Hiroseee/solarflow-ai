@@ -302,16 +302,18 @@ async function main(){
 let error=null;
 let state="STARTING";
 const port=Number(process.env.PORT||10000);
-createServer((req,res)=>{
+const server=createServer((req,res)=>{
   if(req.url==="/results"){res.setHeader("content-type","application/json");res.end(JSON.stringify({state,results,log,error},null,2));return;}
   if(req.url?.startsWith("/pdf/")){const f=path.join(outDir,path.basename(req.url.slice(5))); if(existsSync(f)){res.setHeader("content-type","application/pdf");createReadStream(f).pipe(res);return;}}
   if(req.url==="/health"){res.statusCode=error?500:200;res.end(error?"FAIL":state);return;}
   res.end("CRM H4.1 validation harness");
-}).listen(port,"0.0.0.0",()=>console.log("evidence server on",port));
-
-state="RUNNING";
-main().then(()=>{state="PASS";}).catch(e=>{
-  error={message:e.message,stack:e.stack}; results.fatal=error;
-  try{writeFileSync(path.join(outDir,"RESULTS.json"),JSON.stringify(results,null,2));}catch{}
-  console.error(e); state="FAIL";
+});
+server.listen(port,"0.0.0.0",()=>{
+  console.log("evidence server on",port);
+  state="RUNNING";
+  main().then(()=>{state="PASS";}).catch(e=>{
+    error={message:e.message,stack:e.stack}; results.fatal=error;
+    try{writeFileSync(path.join(outDir,"RESULTS.json"),JSON.stringify(results,null,2));}catch{}
+    console.error(e); state="FAIL";
+  });
 });
