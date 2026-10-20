@@ -80,7 +80,7 @@ async function main(){
   note("H4.1 free integrated validation starting");
   try { run(["init","--force"]); } catch {}
   run(["stack","prepare","--runtime","native"]);
-  run(["start","--runtime","native","--eager"]);
+  run(["start","--runtime","native"]);
   const st=parseStatus(run(["status","--output","json"]));
   const API=pick(st,["API_URL","api_url","API","apiUrl"]);
   const DB=pick(st,["DB_URL","db_url","DB","dbUrl"]);
