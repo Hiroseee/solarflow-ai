@@ -28,7 +28,7 @@ createServer(async(req,res)=>{
   try{await run(["init","--force"])}catch{}
   state.phase="START_STACK";
   await run(["start","--runtime","native","--preparation","on-demand","--exclude","rest,auth,realtime,functions,studio,mail,analytics,pooler"]);
-  const st=parse(await run(["status","--output","json"]));
+  const st=parse(await run(["status","--output-format","json"]));
   if(/supabase\.co/i.test(JSON.stringify(st)))throw new Error("remote reference detected");
   const API=pick(st,["API_URL","api_url","API","apiUrl"]);
   const ANON=pick(st,["ANON_KEY","anon_key","anonKey"]);
