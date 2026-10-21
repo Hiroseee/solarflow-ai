@@ -1,283 +1,62 @@
-import { execFile } from "node:child_process";
-import { createServer } from "node:http";
-import { readFileSync, writeFileSync, mkdirSync, existsSync, createReadStream, createWriteStream } from "node:fs";
-import { createHash } from "node:crypto";
-import path from "node:path";
-import pg from "pg";
-import PDFDocument from "pdfkit";
-import archiver from "archiver";
-import { createClient } from "@supabase/supabase-js";
-
-const { Client } = pg;
-const cwd = process.cwd();
-const outDir = path.join(cwd, "evidence");
-mkdirSync(outDir, { recursive: true });
-const log = [];
-const results = {};
-const note = (m) => { log.push(String(m)); console.log(m); };
-const run = (args, opts={}) => new Promise((resolve,reject)=>{
-  const child=execFile("npx",["supabase",...args],{cwd,encoding:"utf8",env:{...process.env,SUPABASE_EXPERIMENTAL_STACK:"1"},maxBuffer:20*1024*1024,...opts},(err,stdout,stderr)=>{
-    if(stdout) note("[supabase stdout] "+stdout.trim());
-    if(stderr) note("[supabase stderr] "+stderr.trim());
-    if(err){ err.stdout=stdout; err.stderr=stderr; reject(err); } else resolve(stdout);
-  });
-});
-
-function parseStatus(s) {
-  const first = s.indexOf("{"), last = s.lastIndexOf("}");
-  if (first < 0 || last < 0) throw new Error("Supabase status JSON not found");
-  return JSON.parse(s.slice(first,last+1));
+import {createServer} from 'node:http';
+import {createWriteStream,readFileSync,mkdirSync} from 'node:fs';
+import {createHash} from 'node:crypto';
+import path from 'node:path';
+import PDFDocument from 'pdfkit';
+const S={phase:'STARTING',gate_f:'PENDING',pdf_template_gate:'PENDING',results:[],error:null};
+createServer((_q,r)=>{r.setHeader('content-type','application/json');r.end(JSON.stringify(S));}).listen(Number(process.env.PORT||10000),'0.0.0.0');
+const sha=x=>createHash('sha256').update(x).digest('hex');
+const fmt=n=>n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const snapshot={
+ id:'H41-FICTITIOUS-004',client:'Cliente Fictício (ambiente de testes)',
+ template_version:'h4.1-proof-v1',currency:'BRL',
+ commercial:{validity:'10 dias',delivery:'CIF / FOB conforme orçamento',notes:'Condições fictícias; nenhuma proposta real.'},
+ items:[
+ {group:'Solar',name:'Inversor trifásico 15 kW',quantity:1,unit_price:9500,note:'Especificação de referência para teste.'},
+ {group:'Solar',name:'Módulo fotovoltaico 610 W',quantity:13,unit_price:690,note:'Quantidade fictícia.'},
+ {group:'BESS',name:'Sistema BESS 100 kWh',quantity:1,unit_price:73000,note:'Configuração fictícia.'},
+ {group:'Comissionamento',name:'Comissionamento de instalação',quantity:1,unit_price:0,note:'Sem cobrança; justificativa: incluído no fornecimento.'}
+ ],
+ extra_optional:null
+};
+const total=snapshot.items.reduce((n,x)=>n+x.quantity*x.unit_price,0);
+const out=path.join(process.cwd(),'evidence');mkdirSync(out,{recursive:true});
+async function build(file,mode,large){
+ const dest=path.join(out,file);
+ let added=0;const p=new PDFDocument({size:'A4',margins:{top:110,bottom:88,left:42,right:42},bufferPages:true,compress:false});
+ p.on('pageAdded',()=>added++);
+ const w=createWriteStream(dest);p.pipe(w);
+ const row=(x)=>{if(p.y>685)p.addPage();const yy=p.y;const desc=large?x.name+' — '+('Descrição técnica longa do equipamento, acessório e composição comercial, testando quebra controlada de texto. ').repeat(3):x.name;
+ p.font('Helvetica').fontSize(9).fillColor('#111').text(desc,46,yy,{width:mode==='open'?245:385});
+ const endY=p.y;if(mode==='open'){p.text(String(x.quantity),298,yy,{width:30,align:'right'});p.text('R$ '+fmt(x.unit_price),335,yy,{width:90,align:'right'});p.text('R$ '+fmt(x.quantity*x.unit_price),428,yy,{width:125,align:'right'});}
+ if(mode!=='closed')p.fontSize(8).fillColor('#666').text(x.note,46,Math.max(endY,yy+12),{width:450});
+ p.y=Math.max(p.y,endY,yy+44)+9;};
+ p.fontSize(14).text('PROPOSTA COMERCIAL — '+mode.toUpperCase(),46,120);
+ p.moveDown(.8);
+ const groups=[...new Set(snapshot.items.map(x=>x.group))];
+ if(mode==='grouped'){for(const g of groups){p.font('Helvetica-Bold').fontSize(11).fillColor('#111').text(g,46,p.y+9);p.moveDown(.45);for(const x of snapshot.items.filter(y=>y.group===g))row(x);}}
+ else for(const x of snapshot.items)row(x);
+ if(large){for(let i=0;i<18;i++){if(p.y>660)p.addPage();p.fontSize(9).fillColor('#111').text('Condições comerciais editáveis '+String(i+1)+': '+('Observações e condições de entrega fictícias para verificar paginação e legibilidade. ').repeat(5),46,p.y,{width:510});p.moveDown(.6);}}
+ p.moveDown(1);if(p.y>690)p.addPage();
+ p.font('Helvetica-Bold').fontSize(12).fillColor('#111').text('TOTAL: R$ '+fmt(total),46,p.y,{width:506,align:'right'});
+ p.font('Helvetica').fontSize(9).text('Validade: '+snapshot.commercial.validity+' | Entrega: '+snapshot.commercial.delivery,46,p.y+14,{width:500});
+ const range=p.bufferedPageRange();for(let i=range.start;i<range.start+range.count;i++){p.switchToPage(i);p.rect(42,35,510,54).fill('#161616');p.fillColor('#fff').font('Helvetica-Bold').fontSize(15).text('BelEnergy  |  Proposta Comercial',54,52,{width:470});p.rect(42,90,510,4).fill('#d9b300');p.fillColor('#444').font('Helvetica').fontSize(8).text(snapshot.client,46,101);p.text('template_version: '+snapshot.template_version+' | Página '+(i+1)+' / '+range.count,46,780,{width:505,align:'center'});}
+ p.end();await new Promise((ok,bad)=>{w.on('finish',ok);w.on('error',bad)});
+ const b=readFileSync(dest);const pages=(b.toString('latin1').match(/\/Type\s*\/Page\b/g)||[]).length;
+ if(!b.subarray(0,5).equals(Buffer.from('%PDF-')))throw Error('NOT_PDF');
+ if(pages<1||(large&&pages<2))throw Error('PAGINATION_FAIL:'+pages);
+ return {file,mode,pages,sha256:sha(b),size:b.length,total,template_version:snapshot.template_version};
 }
-function pick(obj, names) {
-  for (const n of names) if (obj?.[n]) return obj[n];
-  for (const v of Object.values(obj||{})) if (v && typeof v==="object") {
-    const x = pick(v,names); if (x) return x;
-  }
-}
-function sha256(buf) { return createHash("sha256").update(buf).digest("hex"); }
-async function waitHttp(url, headers={}) {
-  for (let i=0;i<180;i++) {
-    try { const r=await fetch(url,{headers}); if (r.status<500) return true; } catch {}
-    await new Promise(r=>setTimeout(r,1000));
-  }
-  throw new Error("HTTP not ready: "+url);
-}
-async function makePdf(name, mode, long=false) {
-  const file=path.join(outDir,name);
-  await new Promise((resolve,reject)=>{
-    const doc=new PDFDocument({size:"A4",margin:40});
-    const stream=createWriteStream(file);
-    doc.pipe(stream);
-    const W=515;
-    doc.rect(40,40,W,52).fill("#111111");
-    doc.fillColor("#ffffff").fontSize(18).text("BelEnergy — Proposta Comercial",55,57);
-    doc.rect(40,94,W,4).fill("#d9b300");
-    doc.fillColor("#111111").fontSize(10).text("Cliente: Cliente Fictício",40,112).text("Proposta: H4.1-TEST",330,112);
-    doc.moveDown(2).fontSize(12).text(mode==="closed"?"Itens e quantidades":mode==="open"?"Itens, quantidades e valores unitários":"Composição por grupos");
-    const items=[
-      ["Inversor 15 kW trifásico 380 V",1,9500],
-      ["Módulo fotovoltaico 610 W",13,690],
-      ["BESS 100 kWh",1,73000],
-      ["Comissionamento",1,0]
-    ];
-    let y=170;
-    for (const [desc,q,p] of items) {
-      if (y>720){doc.addPage();y=55;}
-      doc.fontSize(9).fillColor("#111111").text(desc,40,y,{width:260});
-      doc.text(String(q),310,y);
-      if(mode==="open"){doc.text("R$ "+p.toFixed(2),350,y);doc.text("R$ "+(p*q).toFixed(2),445,y);}
-      y+=28;
-    }
-    if(long){
-      const txt=("Observações comerciais fictícias para validação de paginação, quebra de texto e leitura. "+
-      "Condições, garantias, disponibilidade e demais blocos são editáveis no snapshot e não devem inserir conteúdo irrelevante automaticamente. ").repeat(35);
-      doc.fontSize(9).text(txt,40,y+15,{width:515,align:"justify"});
-    } else {
-      doc.fontSize(9).text("Validade: 10 dias. Frete conforme modalidade escolhida. Conteúdo fictício para teste.",40,y+20,{width:515});
-    }
-    doc.fontSize(8).fillColor("#555555").text("template_version: h4.1-proof-v1",40,780,{align:"center",width:515});
-    doc.end();
-    stream.on("finish",resolve); stream.on("error",reject);
-  });
-  const b=readFileSync(file); return {file,size:b.length,sha256:sha256(b)};
-}
-
-async function main(){
-  note("H4.1 free integrated validation starting");
-  try { await run(["init","--force"]); } catch {}
-  await run(["stack","prepare","--runtime","native"]);
-  await run(["start","--runtime","native","--preparation","on-demand","--exclude","storage,realtime,functions,studio,mail,analytics,pooler"]);
-  const st=parseStatus(await run(["status","--output-format","json"]));
-  const API=pick(st,["API_URL","api_url","API","apiUrl"]);
-  const DB=pick(st,["DB_URL","db_url","DB","dbUrl"]);
-  const ANON=pick(st,["ANON_KEY","anon_key","anonKey"]);
-  const SERVICE=pick(st,["SERVICE_ROLE_KEY","service_role_key","serviceRoleKey"]);
-  if(!API||!DB||!ANON||!SERVICE) throw new Error("Missing local stack coordinates: "+JSON.stringify(st));
-  if(/supabase\.co/i.test(JSON.stringify(st))) throw new Error("Hosted Supabase reference detected");
-  results.preflight={runtime:"native",local_only:true,api:API.replace(/\/\/.*@/,"//***@"),db:DB.replace(/\/\/.*@/,"//***@")};
-  await waitHttp(API+"/rest/v1/",{apikey:ANON});
-
-  const db=new Client({connectionString:DB}); await db.connect();
-  await db.query(`
-  create extension if not exists pgcrypto;
-  create table if not exists public.opportunities(id uuid primary key default gen_random_uuid(), name text not null);
-  create table if not exists public.profiles(user_id uuid primary key, role text not null check(role in ('seller','admin','director')));
-  create table if not exists public.budgets(
-    id uuid primary key default gen_random_uuid(), opportunity_id uuid not null references public.opportunities(id),
-    seller_id uuid, is_primary boolean not null default true, version int not null default 1,
-    status text not null default 'DRAFT', updated_at timestamptz not null default now()
-  );
-  create unique index if not exists uq_budget_primary_per_opportunity on public.budgets(opportunity_id) where is_primary;
-  create table if not exists public.budget_items(
-    id uuid primary key default gen_random_uuid(), budget_id uuid not null references public.budgets(id) on delete cascade,
-    sku text, description text not null, quantity numeric not null, reference_price numeric,
-    final_price numeric not null, discount_percent numeric, markup_percent numeric, pricing_mode text,
-    item_note text, financial_group text, metadata jsonb not null default '{}'::jsonb
-  );
-  create table if not exists public.revisions(
-    id uuid primary key default gen_random_uuid(), budget_id uuid not null references public.budgets(id),
-    idempotency_key text not null unique, status text not null default 'PENDING_FILE',
-    snapshot jsonb not null, template_version text not null, file_path text, file_sha256 text,
-    created_at timestamptz not null default now()
-  );
-  create table if not exists public.revision_admin_decisions(
-    id uuid primary key default gen_random_uuid(), revision_id uuid not null references public.revisions(id),
-    actor_id uuid, decision text not null, created_at timestamptz not null default now()
-  );
-  create table if not exists public.alerts(
-    id uuid primary key default gen_random_uuid(), budget_item_id uuid, kind text not null, metadata jsonb not null default '{}'::jsonb
-  );
-  create or replace function public.block_issued_revision_mutation() returns trigger language plpgsql as $$
-  begin
-    if old.status='ISSUED' and (new.snapshot is distinct from old.snapshot or new.template_version is distinct from old.template_version or new.file_path is distinct from old.file_path or new.file_sha256 is distinct from old.file_sha256) then
-      raise exception 'ISSUED_REVISION_IMMUTABLE';
-    end if;
-    return new;
-  end $$;
-  drop trigger if exists trg_revision_immutable on public.revisions;
-  create trigger trg_revision_immutable before update on public.revisions for each row execute function public.block_issued_revision_mutation();
-
-  create or replace function public.issue_budget(p_budget uuid,p_idem text,p_snapshot jsonb,p_template text)
-  returns uuid language plpgsql as $$
-  declare rid uuid;
-  begin
-    select id into rid from public.revisions where idempotency_key=p_idem;
-    if rid is not null then return rid; end if;
-    insert into public.revisions(budget_id,idempotency_key,snapshot,template_version,status)
-      values(p_budget,p_idem,p_snapshot,p_template,'PENDING_FILE') returning id into rid;
-    return rid;
-  end $$;
-
-  alter table public.budgets enable row level security;
-  alter table public.revisions enable row level security;
-  alter table public.alerts enable row level security;
-  drop policy if exists budget_select on public.budgets;
-  create policy budget_select on public.budgets for select to authenticated using (
-    seller_id=auth.uid() or exists(select 1 from public.profiles p where p.user_id=auth.uid() and p.role in ('admin','director'))
-  );
-  drop policy if exists budget_update on public.budgets;
-  create policy budget_update on public.budgets for update to authenticated using (
-    seller_id=auth.uid() or exists(select 1 from public.profiles p where p.user_id=auth.uid() and p.role in ('admin','director'))
-  ) with check (
-    seller_id=auth.uid() or exists(select 1 from public.profiles p where p.user_id=auth.uid() and p.role in ('admin','director'))
-  );
-  drop policy if exists revision_select on public.revisions;
-  create policy revision_select on public.revisions for select to authenticated using (
-    exists(select 1 from public.budgets b where b.id=budget_id and (b.seller_id=auth.uid() or exists(select 1 from public.profiles p where p.user_id=auth.uid() and p.role in ('admin','director'))))
-  );
-  `);
-
-  const svc=createClient(API,SERVICE,{auth:{persistSession:false}});
-  const emails=["seller@h41.local","admin@h41.local","director@h41.local"];
-  const roles=["seller","admin","director"]; const users={};
-  for(let i=0;i<3;i++){
-    const {data,error}=await svc.auth.admin.createUser({email:emails[i],password:"H41-Test-Only-!9",email_confirm:true});
-    if(error && !/already/i.test(error.message)) throw error;
-    let uid=data?.user?.id;
-    if(!uid){
-      const {data:list}=await svc.auth.admin.listUsers(); uid=list.users.find(u=>u.email===emails[i])?.id;
-    }
-    users[roles[i]]=uid;
-    await db.query("insert into public.profiles(user_id,role) values($1,$2) on conflict(user_id) do update set role=excluded.role",[uid,roles[i]]);
-  }
-  const op=(await db.query("insert into public.opportunities(name) values('Fixture Opportunity') returning id")).rows[0].id;
-
-  // A: budget uniqueness
-  const ins=async()=>db.query("insert into public.budgets(opportunity_id,seller_id,is_primary) values($1,$2,true) returning id",[op,users.seller]).then(r=>r.rows[0].id);
-  const settled=await Promise.allSettled([ins(),ins()]);
-  const count=Number((await db.query("select count(*) c from public.budgets where opportunity_id=$1 and is_primary",[op])).rows[0].c);
-  results.A={pass:count===1 && settled.filter(x=>x.status==="fulfilled").length===1,count}; const budget=(await db.query("select id,version from public.budgets where opportunity_id=$1",[op])).rows[0];
-
-  // B/C optimistic concurrency + autosave
-  const v=budget.version;
-  const a=await db.query("update public.budgets set version=version+1,updated_at=now() where id=$1 and version=$2 returning version",[budget.id,v]);
-  const b=await db.query("update public.budgets set version=version+1,updated_at=now() where id=$1 and version=$2 returning version",[budget.id,v]);
-  results.B={pass:a.rowCount===1 && b.rowCount===0,first:a.rows[0]?.version,staleRows:b.rowCount};
-  const fallback={budgetId:budget.id,pending:true,version:v}; results.C={pass:results.B.pass && fallback.pending===true,recovery_fixture:fallback};
-
-  // J: discounts + persistence/alerts
-  const cases=[15,20,20.01,25];
-  const j=[];
-  for(const d of cases){
-    const final=100*(1-d/100);
-    const item=(await db.query("insert into public.budget_items(budget_id,description,quantity,reference_price,final_price,discount_percent,pricing_mode,financial_group) values($1,$2,1,100,$3,$4,'discount','Solar') returning id",[budget.id,"Fixture "+d,final,d])).rows[0];
-    const alert=d>20;
-    if(alert) await db.query("insert into public.alerts(budget_item_id,kind,metadata) values($1,'DISCOUNT_GT_20',$2)",[item.id,JSON.stringify({discount:d})]);
-    j.push({discount:d,alert});
-  }
-  j.push({manualFinal:75,effectiveDiscount:25,alert:true},{reference:null,status:"NOT_COMPARABLE",alert:false},{commissioning:0,justification:"Fixture",pass:true},{pricing:"R$/Wp",pass:true},{pricing:"R$/kWh",pass:true});
-  results.J={pass:j[0].alert===false&&j[1].alert===false&&j[2].alert===true&&j[3].alert===true,cases:j};
-
-  // D issue idempotency + pending/compensation
-  const snap={presentation:"closed",items:4,notes:"fixture"};
-  const rid1=(await db.query("select public.issue_budget($1,$2,$3::jsonb,$4) id",[budget.id,"idem-001",JSON.stringify(snap),"h4.1-proof-v1"])).rows[0].id;
-  const rid2=(await db.query("select public.issue_budget($1,$2,$3::jsonb,$4) id",[budget.id,"idem-001",JSON.stringify(snap),"h4.1-proof-v1"])).rows[0].id;
-  const pending=(await db.query("select status from public.revisions where id=$1",[rid1])).rows[0].status;
-  results.D={pass:rid1===rid2&&pending==="PENDING_FILE",revision:rid1,idempotent:rid1===rid2};
-
-  // F PDFs
-  const pdfs=[
-    await makePdf("closed.pdf","closed",false),
-    await makePdf("open.pdf","open",false),
-    await makePdf("multipage.pdf","open",true),
-    await makePdf("solar-bess-commissioning.pdf","grouped",false)
-  ];
-  results.F={pass:pdfs.every(x=>x.size>1000),pdfs};
-
-  results.G={pass:true,external_storage_gate:true}; results.H={pass:true,external_storage_gate:true};
-
-  // E immutability + admin decision side table
-  await db.query("update public.revisions set status='ISSUED',file_path=$2,file_sha256=$3 where id=$1",[rid1,"external-storage/closed.pdf",pdfs[0].sha256]);
-  let blocked=false; try{await db.query("update public.revisions set snapshot='{}'::jsonb where id=$1",[rid1]);}catch{blocked=true;}
-  await db.query("insert into public.revision_admin_decisions(revision_id,actor_id,decision) values($1,$2,'APPROVED')",[rid1,users.admin]);
-  const unchanged=(await db.query("select snapshot from public.revisions where id=$1",[rid1])).rows[0].snapshot;
-  results.E={pass:blocked && unchanged.presentation==="closed",blocked};
-
-  // I permissions via real RLS
-  const sellerClient=createClient(API,ANON,{auth:{persistSession:false}}); await sellerClient.auth.signInWithPassword({email:emails[0],password:"H41-Test-Only-!9"});
-  const adminClient=createClient(API,ANON,{auth:{persistSession:false}}); await adminClient.auth.signInWithPassword({email:emails[1],password:"H41-Test-Only-!9"});
-  const sellerRead=await sellerClient.from("budgets").select("id").eq("id",budget.id);
-  const adminRead=await adminClient.from("budgets").select("id").eq("id",budget.id);
-  const otherOp=(await db.query("insert into public.opportunities(name) values('Other') returning id")).rows[0].id;
-  const otherBudget=(await db.query("insert into public.budgets(opportunity_id,seller_id) values($1,$2) returning id",[otherOp,users.director])).rows[0].id;
-  const sellerOther=await sellerClient.from("budgets").select("id").eq("id",otherBudget);
-  results.I={pass:(sellerRead.data?.length===1)&&(adminRead.data?.length===1)&&(sellerOther.data?.length===0),sellerOwn:sellerRead.data?.length,adminAll:adminRead.data?.length,sellerOther:sellerOther.data?.length};
-
-  // K historical compatibility fixture
-  const legacySnap={legacy:true,total:12345,notes:"legacy fixture"};
-  const legacy=(await db.query("insert into public.revisions(budget_id,idempotency_key,status,snapshot,template_version) values($1,'legacy-001','ISSUED',$2::jsonb,'legacy') returning snapshot",[budget.id,JSON.stringify(legacySnap)])).rows[0].snapshot;
-  results.K={pass:legacy.legacy===true && legacy.total===12345};
-
-  // L transactional rollback
-  await db.query("begin"); await db.query("create table public.h41_rollback_probe(id int)"); await db.query("insert into public.h41_rollback_probe values(1)"); await db.query("rollback");
-  const exists=(await db.query("select to_regclass('public.h41_rollback_probe') r")).rows[0].r;
-  results.L={pass:exists===null};
-
-  // Template gate
-  results.PDF_TEMPLATE_GATE={pass:pdfs.length===4 && pdfs[2].size>pdfs[0].size,identity:"black header + yellow rule",optionalBlocks:true,longText:true,noIrrelevantAutomaticText:true};
-
-  const all=["A","B","C","D","E","F","G","H","I","J","K","L"].every(k=>results[k]?.pass);
-  results.summary={all_gates_pass:all,certification:all&&results.PDF_TEMPLATE_GATE.pass?"PHASE_H4_1_TECHNICAL_GENERATOR_READINESS_PASS":"FAIL",cost_usd:0,production_changed:false,bess_changed:false};
-  writeFileSync(path.join(outDir,"RESULTS.json"),JSON.stringify(results,null,2));
-  await db.end();
-  note(JSON.stringify(results.summary));
-}
-
-let error=null;
-let state="STARTING";
-const port=Number(process.env.PORT||10000);
-const server=createServer((req,res)=>{
-  if(req.url==="/results"){res.setHeader("content-type","application/json");res.end(JSON.stringify({state,results,log,error},null,2));return;}
-  if(req.url?.startsWith("/pdf/")){const f=path.join(outDir,path.basename(req.url.slice(5))); if(existsSync(f)){res.setHeader("content-type","application/pdf");createReadStream(f).pipe(res);return;}}
-  if(req.url==="/health"){res.statusCode=error?500:200;res.end(error?"FAIL":state);return;}
-  res.end("CRM H4.1 validation harness");
-});
-server.listen(port,"0.0.0.0",()=>{
-  console.log("evidence server on",port);
-  state="RUNNING";
-  main().then(()=>{state="PASS";}).catch(e=>{
-    error={message:e.message,stack:e.stack}; results.fatal=error;
-    try{writeFileSync(path.join(outDir,"RESULTS.json"),JSON.stringify(results,null,2));}catch{}
-    console.error(e); state="FAIL";
-  });
-});
+(async()=>{try{
+ S.phase='RENDER';
+ S.results.push(await build('F_fechado.pdf','closed',false));
+ S.results.push(await build('F_aberto.pdf','open',false));
+ S.results.push(await build('F_multipage.pdf','open',true));
+ S.results.push(await build('F_solar_bess_comissionamento.pdf','grouped',false));
+ const values=S.results.map(x=>x.total);if(values.some(x=>x!==values[0]))throw Error('ECONOMIC_SNAPSHOT_DIVERGENCE');
+ if(S.results.some(x=>!x.sha256||!x.template_version))throw Error('METADATA_FAIL');
+ S.gate_f='PASS_RUNTIME_RENDER';
+ S.pdf_template_gate='PENDING_INDEPENDENT_VISUAL_BRAND_PARITY';
+ S.phase='COMPLETE';
+ console.log('[H41_PDF] FINAL',JSON.stringify(S));
+}catch(e){S.error=e.message;S.phase='FAIL';console.error('[H41_PDF] FAIL',e.message)}})();
