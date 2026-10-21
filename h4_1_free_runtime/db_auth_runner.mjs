@@ -19,7 +19,7 @@ try{
  const excludes='auth,rest,realtime,storage,functions,studio,mail,analytics,pooler';
  S.db_only_command='supabase start --runtime native --preparation on-demand --exclude '+excludes;
  await run(['start','--runtime','native','--preparation','on-demand','--exclude',excludes],120000);
- S.phase='STATUS';const raw=await run(['status','--output','json'],45000);
+ S.phase='STATUS';const raw=await run(['status','--output-format','json'],45000);
  const j=JSON.parse(raw.slice(raw.indexOf('{'),raw.lastIndexOf('}')+1));
  ensure(!JSON.stringify(j).includes('supabase.co'),'REMOTE_ENDPOINT_IN_STATUS');
  const vals=Object.entries(j).filter(([k,v])=>/DB_URL|DATABASE_URL|db_url/i.test(k)&&typeof v==='string');
