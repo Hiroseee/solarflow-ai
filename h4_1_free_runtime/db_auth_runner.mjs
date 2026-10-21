@@ -9,7 +9,18 @@ import {createClient} from "@supabase/supabase-js";
 
 const S={phase:"STARTING",result:{},error:null};
 createServer((q,r)=>{r.setHeader("content-type","application/json");r.end(JSON.stringify(S))}).listen(Number(process.env.PORT||10000),"0.0.0.0");
-const run=a=>new Promise((ok,bad)=>execFile("npx",["supabase",...a],{env:{...process.env,SUPABASE_EXPERIMENTAL_STACK:"1"},maxBuffer:2e7},(e,o,er)=>e?bad(Object.assign(e,{stderr:er})):ok(o)));
+const run=a=>new Promise((ok,bad)=>{
+ const name=a.join(" ");const started=Date.now();const timeout=a[0]==="start"?90000:45000;
+ S.phase="COMMAND:"+name;S.result.last_command={name,started_at:new Date().toISOString(),timeout_ms:timeout};
+ console.log("[H4.1] BEGIN",name,"timeout_ms",timeout);
+ const child=execFile("npx",["--no-install","supabase",...a],{env:{...process.env,SUPABASE_EXPERIMENTAL_STACK:"1"},maxBuffer:2e7,timeout},(e,o,er)=>{
+  S.result.last_command={name,duration_ms:Date.now()-started,exit:e?.code??0,signal:e?.signal??null,stderr_tail:(er||"").slice(-1500)};
+  console.log("[H4.1] END",name,"duration_ms",Date.now()-started,"exit",e?.code??0,"stderr_tail",(er||"").slice(-500));
+  e?bad(Object.assign(e,{stderr:er,step:name})):ok(o);
+ });
+ child.stdout?.on("data",d=>console.log("[H4.1] STDOUT",name,String(d).slice(-500)));
+ child.stderr?.on("data",d=>console.log("[H4.1] STDERR",name,String(d).slice(-500)));
+});
 const parse=s=>JSON.parse(s.slice(s.indexOf("{"),s.lastIndexOf("}")+1));
 const pick=(o,n)=>{for(const k of n)if(o?.[k])return o[k];for(const v of Object.values(o||{}))if(v&&typeof v==="object"){const x=pick(v,n);if(x)return x}};
 const sha=b=>createHash("sha256").update(b).digest("hex");
@@ -20,7 +31,7 @@ async function pdf(name,long=false){
 }
 (async()=>{try{
  try{await run(["init","--force"])}catch{}
- S.phase="STACK";
+ S.phase="STACK";console.log("[H4.1] starting isolated native stack");
  await run(["start","--runtime","native","--preparation","on-demand","--exclude","storage,realtime,functions,studio,mail,analytics,pooler"]);
  const st=parse(await run(["status","--output","json"]));if(/supabase\\.co/i.test(JSON.stringify(st)))throw Error("remote detected");
  const API=pick(st,["API_URL","api_url"]),DB=pick(st,["DB_URL","db_url"]),ANON=pick(st,["ANON_KEY","anon_key"]),SERVICE=pick(st,["SERVICE_ROLE_KEY","service_role_key"]);
@@ -63,4 +74,4 @@ async function pdf(name,long=false){
  const legacy={legacy:true,total:123};await C.query("insert into revisions(budget_id,idempotency_key,status,snapshot,template_version) values($1,'legacy','ISSUED',$2::jsonb,'legacy')",[b.id,JSON.stringify(legacy)]);const lr=(await C.query("select snapshot from revisions where idempotency_key='legacy'")).rows[0].snapshot;S.result.K={pass:lr.legacy===true&&lr.total===123};
  await C.query("begin");await C.query("create table rollback_probe(id int)");await C.query("insert into rollback_probe values(1)");await C.query("rollback");S.result.L={pass:(await C.query("select to_regclass('rollback_probe') r")).rows[0].r===null};
  await C.end();S.phase=["A","B","C","D","E","F","I","J","K","L"].every(k=>S.result[k]?.pass)&&S.result.PDF_TEMPLATE_GATE.pass?"PASS":"FAIL";
-}catch(e){S.error=e.message+" "+(e.stderr||"");S.phase="FAIL"}})();
+}catch(e){S.error=(e.step||"unknown")+" | "+e.message+" "+(e.stderr||"").slice(-2000);console.error("[H4.1] FAIL",S.error);S.phase="FAIL"}})();
