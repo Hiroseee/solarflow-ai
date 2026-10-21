@@ -22,7 +22,11 @@ try{
  S.phase='STATUS';const raw=await run(['status','--output-format','json'],45000);
  const j=JSON.parse(raw.slice(raw.indexOf('{'),raw.lastIndexOf('}')+1));
  ensure(!JSON.stringify(j).includes('supabase.co'),'REMOTE_ENDPOINT_IN_STATUS');
- const vals=Object.entries(j).filter(([k,v])=>/DB_URL|DATABASE_URL|db_url/i.test(k)&&typeof v==='string');
+ const vals=[];
+ const keys=[];
+ const scan=(v,p='')=>{if(!v||typeof v!=='object')return;for(const [k,x] of Object.entries(v)){const key=p?p+'.'+k:k;keys.push(key);if(typeof x==='string'&&/^(postgres|postgresql):\/\//i.test(x))vals.push([key,x]);if(x&&typeof x==='object')scan(x,key);}};
+ scan(j);S.status_keys=keys.slice(0,80);
+ log('STATUS_KEYS',keys.slice(0,80).join(','));
  ensure(vals.length>0,'LOCAL_DB_URL_MISSING');
  const url=vals[0][1];const u=new URL(url);ensure(['127.0.0.1','localhost'].includes(u.hostname),'DB_NOT_LOCALHOST');
  S.isolation='PASS';S.db_host=u.hostname;S.phase='CONNECT';
