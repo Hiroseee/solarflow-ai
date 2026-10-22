@@ -1,3 +1,2 @@
-// Temporary H5-H test target on existing authorized Render FREE helper.
-// H5-G certified runner remains preserved at h5g_security_runner.mjs.
-import './h5h_test_runner.mjs';
+// H5-H integrated disposable PostgreSQL/Auth/REST/JWT targeted runner. H5-G original preserved separately.
+import './h5h_pg_integrated_runner.mjs';
