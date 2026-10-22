@@ -1,0 +1,25 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>H5-D — Orçamento comercial fictício</title><style>body{margin:0;background:#f4f6f8;color:#1d2937;font:15px system-ui;padding:25px}main{max-width:750px;margin:auto;background:white;border:1px solid #d4dae3;padding:25px;border-radius:12px}section{display:grid;gap:12px;margin:20px 0}label{display:grid;gap:5px}input,select,button{font:inherit;padding:9px;border:1px solid #adb8c8;border-radius:7px}button{cursor:pointer}#items>section{padding-top:16px;border-top:1px solid #ddd}small{color:#606d7a}</style></head><body><main><h1>Orçamento fictício — H5-D</h1><p><small>Somente dados fictícios. Autosave simulado em localStorage; não conecta ao CRM ou ao PostgreSQL.</small></p><button id="new">Novo orçamento fictício</button><button id="save">Salvar agora</button><div id="items"></div><div id="pricing"></div><p id="message" role="status"></p><small>Atualize a página para conferir a recuperação local. Preços e frete são fictícios. Descontos sem política aprovada permanecem indisponíveis.</small></main><script type="module">
+import {DraftController} from '../src/h5-b/draft-engine.mjs';
+import {WebStorageDraftStore} from '../src/h5-b/browser-draft-store.mjs';
+import {makeCatalog} from '../src/h5-c/commercial-items.mjs';
+import {mountCommercialItems} from '../src/h5-c/commercial-items-ui.mjs';
+import {mountPricingPanel} from '../src/h5-d/pricing-ui.mjs';
+const catalog=makeCatalog([
+{id:'fixture-inv-12',category:'inverter',label:'Inversor fictício 12 kW, 380 V'},
+{id:'fixture-inv-15',category:'inverter',label:'Inversor fictício 15 kW, 380 V'},
+{id:'fixture-bess',category:'bess',label:'BESS fictício'},
+{id:'fixture-module',category:'module',label:'Módulo solar fictício'},
+{id:'fixture-cable',category:'dc_cable_black',label:'Cabo CC preto fictício'},
+{id:'fixture-mc4',category:'mc4',label:'Conector MC4 fictício'},
+{id:'fixture-accessory',category:'accessory',label:'Acessório fictício — confirmar compatibilidade'},
+{id:'fixture-unavailable',category:'other',label:'Produto indisponível fictício',available:false}
+]);
+const prefix='h5c-demo:',store=new WebStorageDraftStore(localStorage,{prefix:prefix+'pending:'});let id=localStorage.getItem(prefix+'active')||'fixture-first',controller,cleanup=()=>{},cleanupPricing=()=>{};
+const adapter={
+ async create(k,data){if(localStorage.getItem(prefix+'record:'+k))throw Error('DUPLICATE');const row={id:k,version:1,data};localStorage.setItem(prefix+'record:'+k,JSON.stringify(row));return row;},
+ async load(k){const raw=localStorage.getItem(prefix+'record:'+k);return raw?JSON.parse(raw):null;},
+ async save(req){const key=prefix+'receipt:'+req.id+':'+req.mutationId,receipt=localStorage.getItem(key);if(receipt)return JSON.parse(receipt);const raw=localStorage.getItem(prefix+'record:'+req.id);if(!raw)throw Error('NOT_FOUND');const row=JSON.parse(raw);if(row.version!==req.expectedVersion){const e=Error('VERSION_CONFLICT');e.code='VERSION_CONFLICT';throw e;}const next={id:req.id,version:row.version+1,data:req.data};localStorage.setItem(prefix+'record:'+req.id,JSON.stringify(next));localStorage.setItem(key,JSON.stringify(next));return next;}
+};
+async function activate(k){cleanup();cleanupPricing();id=k;localStorage.setItem(prefix+'active',id);if(!await adapter.load(id))await adapter.create(id,{client:'Cliente fictício',kitChoice:null,items:[]});controller=new DraftController({id,adapter,durableStore:store,mutationIds:()=>crypto.randomUUID()});await controller.initialize();cleanup=mountCommercialItems(document.getElementById('items'),controller,catalog);cleanupPricing=mountPricingPanel(document.getElementById('pricing'),controller,catalog);document.getElementById('message').textContent='Orçamento: '+id;}
+document.getElementById('new').onclick=()=>void activate('fixture-'+crypto.randomUUID().slice(0,8));document.getElementById('save').onclick=()=>void controller.flush();try{await activate(id);}catch(e){document.getElementById('message').textContent='Falha de recuperação: '+e.message;}
+</script></body></html>
