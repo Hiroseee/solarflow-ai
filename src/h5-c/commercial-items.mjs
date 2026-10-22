@@ -7,7 +7,7 @@ export function makeCatalog(products=[]){const map=new Map();for(const p of prod
 export function chooseKit(draft,kitId){if(!KIT_CHOICES.some(k=>k.id===kitId))throw Error('INVALID_KIT_CHOICE');return {...copy(draft),kitChoice:kitId,items:copy(draft.items||[])};}
 export function validateItems(items,catalog){if(!Array.isArray(items)||items.length>300)throw Error('INVALID_ITEMS');const ids=new Set();for(const it of items){if(!it||typeof it.lineId!=='string'||!it.lineId||ids.has(it.lineId))throw Error('DUPLICATE_LINE_ID');ids.add(it.lineId);const p=catalog.get(it.productId);if(!p)throw Error('UNKNOWN_PRODUCT');if(!Number.isSafeInteger(it.quantity)||it.quantity<=0||it.quantity>100000)throw Error('INVALID_QUANTITY');if(it.category!==p.category)throw Error('CATEGORY_MISMATCH');if(it.kitChoice&&!KIT_CHOICES.some(k=>k.id===it.kitChoice))throw Error('INVALID_KIT_LINK');if(it.category==='accessory'&&it.relatedBessLineId&&!items.some(x=>x.lineId===it.relatedBessLineId&&x.category==='bess'))throw Error('ORPHAN_ACCESSORY');}return true;}
 export function addItem(draft,catalog,{productId,quantity=1,lineId,relatedBessLineId=null}){
- const items=copy(draft.items||[]),p=catalog.get(productId);if(!p)throw Error('UNKNOWN_PRODUCT');
+ const items=copy(draft.items||[]),p=catalog.get(productId);if(!p)throw Error('UNKNOWN_PRODUCT');if(p.available===false)throw Error('PRODUCT_UNAVAILABLE');
  if(!lineId||typeof lineId!=='string'||items.some(i=>i.lineId===lineId))throw Error('DUPLICATE_LINE_ID');
  const item={lineId,productId,category:p.category,quantity,kitChoice:draft.kitChoice||null,relatedBessLineId};
  if(item.category==='accessory'&&relatedBessLineId&&!items.some(x=>x.lineId===relatedBessLineId&&x.category==='bess'))throw Error('ORPHAN_ACCESSORY');
@@ -26,4 +26,4 @@ export function kitAlerts(draft,catalog){const items=draft.items||[];validateIte
  // Do not invent product-level mandatory dependencies not provided in spec/catalog.
  return out;
 }
-export function catalogView(catalog){return [...catalog.values()].map(p=>({id:p.id,category:p.category,label:p.label,available:p.available!==false}));}
+export function catalogView(catalog){return [...catalog.values()].map(p=>({id:p.id,category:p.category,label:p.label,available:p.available!==false,referenceCode:p.referenceCode||null,selectionStatus:p.available===false?'unavailable':'eligible'}));}
