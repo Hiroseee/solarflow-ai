@@ -1,0 +1,40 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>H5-B — Demonstração isolada</title><style>:root{font:16px system-ui,sans-serif;color:#17212e;background:#f4f6f8}body{margin:0;padding:30px}main{max-width:670px;margin:0 auto;background:white;border:1px solid #d8dee8;border-radius:14px;padding:26px}h1{font-size:1.3rem}section{display:grid;gap:12px}input{font:inherit;padding:12px;border:1px solid #b7c1ce;border-radius:8px}button{font:inherit;border:1px solid #aeb9c6;border-radius:8px;background:#fff;padding:9px 14px;cursor:pointer}button:disabled{opacity:.45}button[hidden]{display:none}p[role=status]{font-weight:600}small{color:#53606f}button:focus-visible,input:focus-visible{outline:3px solid #3d75c9}.tools{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}.tools button{font-size:13px}#message{color:#a33;font-size:14px}button:focus-visible{outline:3px solid #3d75c9}</style></head><body><main><h1>CRM · H5-B — Rascunho de demonstração</h1><p>Somente dados fictícios. Persistência local de teste — não conecta ao CRM.</p><div class="tools"><button id="new">Novo orçamento fictício</button><button id="offline">Simular falha de rede</button><button id="conflict">Simular conflito</button><button id="reset">Reiniciar dados de demonstração</button></div><div id="app"></div><p id="message" role="alert"></p><p><small>Use “Salvar agora” ou aguarde o autosave. Atualize a página para recuperar o último rascunho local.</small></p></main><script type="module">
+import {DraftController} from '../src/h5-b/draft-engine.mjs';
+import {WebStorageDraftStore,attachReconnectRetry} from '../src/h5-b/browser-draft-store.mjs';
+import {mountDraftEditor} from '../src/h5-b/draft-editor.mjs';
+const prefix='h5b-demo:',store=new WebStorageDraftStore(localStorage,{prefix:prefix+'pending:'});
+const $=id=>document.getElementById(id),message=$('message');
+let id=localStorage.getItem(prefix+'active')||'fixture-001', controller, cleanup=()=>{},detach=()=>{},failNext=false;
+const record=k=>prefix+'record:'+k;
+const receipts=k=>prefix+'receipt:'+k;
+function safeParse(raw){if(raw===null)return null;const value=JSON.parse(raw);if(!value||typeof value!=='object'||typeof value.id!=='string'||!Number.isInteger(value.version)||value.version<1||!value.data||typeof value.data!=='object')throw Error('INVALID_STORED_DRAFT');return value;}
+const adapter={
+ async load(k){return safeParse(localStorage.getItem(record(k)));},
+ async create(k,data){if(localStorage.getItem(record(k)))throw Error('DUPLICATE_DRAFT');const value={id:k,version:1,data};localStorage.setItem(record(k),JSON.stringify(value));return value;},
+ async save(req){
+  if(failNext){failNext=false;throw Error('FALHA_DE_REDE_SIMULADA');}
+  const old=safeParse(localStorage.getItem(record(req.id)));
+  if(!old)throw Error('NOT_FOUND');
+  const prior=safeParse(localStorage.getItem(receipts(req.id+'-'+req.mutationId)));
+  if(prior)return prior;
+  if(old.version!==req.expectedVersion){const error=Error('VERSION_CONFLICT');error.code='VERSION_CONFLICT';error.current=old;throw error;}
+  const next={id:req.id,version:old.version+1,data:req.data};
+  localStorage.setItem(record(req.id),JSON.stringify(next));
+  localStorage.setItem(receipts(req.id+'-'+req.mutationId),JSON.stringify(next));
+  return next;
+ }
+};
+async function activate(nextId){
+ cleanup();detach();id=nextId;localStorage.setItem(prefix+'active',id);
+ if(!await adapter.load(id))await adapter.create(id,{client:'Cliente fictício'});
+ controller=new DraftController({id,adapter,durableStore:store,mutationIds:()=>crypto.randomUUID()});
+ await controller.initialize();cleanup=mountDraftEditor($('app'),controller);
+ detach=attachReconnectRetry(controller,window);
+ message.textContent='Orçamento fictício: '+id+'. Modo simulado: localStorage, sem PostgreSQL.';
+}
+$('new').onclick=async()=>{try{await activate('fixture-'+crypto.randomUUID().slice(0,8));}catch(e){message.textContent=e.message;}};
+$('offline').onclick=()=>{failNext=true;message.textContent='A próxima gravação falhará para simular perda de conexão.';};
+$('conflict').onclick=()=>{const old=safeParse(localStorage.getItem(record(id)));const next={...old,version:old.version+1,data:{...old.data,client:'Alterado por outra sessão fictícia'}};localStorage.setItem(record(id),JSON.stringify(next));message.textContent='Conflito simulado: a versão no servidor local foi alterada. Edite e salve para testar a resolução.';};
+$('reset').onclick=async()=>{for(const k of Object.keys(localStorage).filter(k=>k.startsWith(prefix)))localStorage.removeItem(k);try{await activate('fixture-001');}catch(e){message.textContent=e.message;}};
+try{await activate(id);}catch(e){message.textContent='Não foi possível recuperar o rascunho local: '+e.message+'. Use Reiniciar dados de demonstração.';}
+</script></body></html>
