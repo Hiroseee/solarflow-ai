@@ -1,4 +1,6 @@
-import PDFDocument from 'pdfkit';
+import {createRequire} from 'node:module';
+const localRequire=createRequire(new URL('../../h4_1_free_runtime/package.json',import.meta.url));
+const PDFDocument=localRequire('pdfkit');
 import {verifyFixtureSnapshot} from './fixture-snapshot.mjs';
 import {moneyBRL} from '../h5-d/pricing-engine.mjs';
 export async function renderFixturePdf(snapshot){
