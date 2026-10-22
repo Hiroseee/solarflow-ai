@@ -14,9 +14,9 @@ for(const stream of [child.stdout,child.stderr])stream.on('data',data=>{
 });
 child.on('error',error=>{state.phase='FAIL';state.error=error.message;console.log('[H5H_TEST] FINAL '+JSON.stringify(state))});
 child.on('exit',(code)=>{
- state.tests=Number(result.match(/^# tests (\d+)/m)?.[1]||0);
- state.pass=Number(result.match(/^# pass (\d+)/m)?.[1]||0);
- state.fail=Number(result.match(/^# fail (\d+)/m)?.[1]||0);
+ state.tests=Number(result.match(/^(?:#|ℹ)\s*tests\s+(\d+)/m)?.[1]||0);
+ state.pass=Number(result.match(/^(?:#|ℹ)\s*pass\s+(\d+)/m)?.[1]||0);
+ state.fail=Number(result.match(/^(?:#|ℹ)\s*fail\s+(\d+)/m)?.[1]||0);
  state.phase=code===0&&state.tests>=12&&state.pass===state.tests&&state.fail===0?'PASS':'FAIL';
  if(state.phase==='FAIL')state.error='TEST_RUN_EXIT_'+code;
  console.log('[H5H_TEST] FINAL '+JSON.stringify(state));
