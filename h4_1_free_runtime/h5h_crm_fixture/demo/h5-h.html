@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gerador de Orçamentos V2 — H5-H isolado</title>
+<style>
+:root{font-family:system-ui,Segoe UI,Arial,sans-serif;color:#213044;background:#edf2f7}
+*{box-sizing:border-box}body{margin:0}header{background:#102942;color:#fff;padding:24px max(20px,calc((100vw - 1140px)/2))}
+header h1{font-size:1.55rem;margin:0 0 8px}header p{margin:0;opacity:.85;line-height:1.5}
+main{max-width:1140px;margin:22px auto;padding:0 16px 40px}
+.flag{padding:14px 16px;background:#fff8e9;border-left:4px solid #a66b13;border-radius:6px;margin-bottom:16px;line-height:1.5}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:18px;align-items:center}
+button{border:1px solid #a4b3c4;background:#fff;border-radius:7px;padding:10px 13px;font:inherit;cursor:pointer;color:#132e49}
+button.primary{background:#154e7b;color:#fff;border-color:#154e7b}button:disabled{opacity:.5;cursor:not-allowed}
+.panels{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:16px}
+.panel{background:#fff;padding:19px 20px;border:1px solid #d8e0e8;border-radius:10px;min-width:0}
+.panel h2{font-size:1.15rem;margin:0 0 13px}
+.panel section{display:grid;gap:12px}
+label{display:grid;gap:5px;font-weight:500;font-size:.93rem}input,select{width:100%;padding:9px;border:1px solid #aab9c9;border-radius:6px;font:inherit;background:white}
+input[type=number]{max-width:170px}
+#items section>div>div{border-bottom:1px solid #e5ebf0;padding:8px 0;display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+#pricing section>div>div{margin:7px 0;display:flex;flex-wrap:wrap;gap:7px;align-items:center}
+#preview{margin-top:17px}#preview[hidden],#editing[hidden]{display:none}
+#preview ul{padding-left:22px}#preview p{line-height:1.5}
+#history{list-style:none;padding:0}#history li{padding:11px 0;border-bottom:1px solid #e3eaf0}
+#history a{color:#145985;text-decoration:underline}small,.muted{color:#5d6b77}
+#message{font-weight:600;min-height:25px} .notice{color:#8a4119;font-weight:600}
+footer{font-size:.87rem;color:#5a6e81;margin-top:18px;line-height:1.6}
+@media(max-width:850px){.panels{grid-template-columns:1fr}}
+</style></head>
+<body>
+<header><h1>Gerador de Orçamentos V2 — demonstração integrada</h1>
+<p>H5-H · Dados 100% fictícios · Uma única experiência de orçamento, edição, cálculo, prévia e PDF de teste.</p></header>
+<main>
+<div class="flag"><strong>DOCUMENTO / AMBIENTE DE TESTE — SEM VALIDADE COMERCIAL.</strong>
+Rascunhos e valores fictícios ficam no localStorage deste navegador. PDFs e histórico utilizam armazenamento temporário na memória do servidor local; o histórico desaparece ao reiniciar o servidor.
+<strong>Não há login real, PostgreSQL, validação canônica nem Storage privado nesta página.</strong>
+O caminho H5-G autenticado não autoriza gravar preços, fretes ou descontos até a aprovação das permissões oficiais.</div>
+<div class="toolbar"><button id="new" class="primary" type="button">Novo orçamento fictício</button>
+<button id="save" type="button">Salvar rascunho local</button>
+<button id="openPreview" type="button">Abrir prévia</button>
+<button id="pdf" class="primary" type="button">Gerar PDF + revisão de teste</button></div>
+<p id="message" role="status" aria-live="polite"></p>
+<div id="editing" class="panels">
+<div class="panel"><div id="client"></div><h2>Kit, produtos e acessórios</h2><div id="items"></div></div>
+<div class="panel"><h2>Preços e frete — simulação local</h2><div id="pricing"></div>
+<p class="notice">Descontos não autorizados permanecem bloqueados. Não existe emissão comercial real.</p></div>
+</div>
+<div id="preview" class="panel" hidden></div>
+<div class="panel" style="margin-top:17px"><h2>Histórico de revisões fictícias</h2>
+<p class="muted">Revisões somente neste processo local. Arquivos são gerados pelo PDFKit existente e não publicados no Storage.</p>
+<button id="refreshHistory" type="button">Atualizar histórico</button>
+<ul id="history" aria-label="Revisões fictícias"></ul></div>
+<footer>Interface H5-H: componentes H5-B, H5-C, H5-D e H5-E reutilizados. PDF e revisões H5-F reutilizados no servidor Node local.
+H5-G validada separadamente com PostgreSQL/Auth/REST/JWT de teste. Emissão oficial, integração canônica e deploy de produção: BLOQUEADOS.</footer>
+</main>
+<script type="module">
+import {DraftController} from '../src/h5-b/draft-engine.mjs';
+import {WebStorageDraftStore} from '../src/h5-b/browser-draft-store.mjs';
+import {mountDraftEditor} from '../src/h5-b/draft-editor.mjs';
+import {mountCommercialItems} from '../src/h5-c/commercial-items-ui.mjs';
+import {mountPricingPanel} from '../src/h5-d/pricing-ui.mjs';
+import {mountProposalPreview} from '../src/h5-e/proposal-preview-ui.mjs';
+import {fictionalCatalog} from '../src/h5-h/fictional-catalog.mjs';
+import {IsolatedLocalDraftAdapter} from '../src/h5-h/isolated-local-adapter.mjs';
+const prefix='crm-h5h-local:',storage=window.localStorage;
+const adapter=new IsolatedLocalDraftAdapter(storage,{prefix});
+const durable=new WebStorageDraftStore(storage,{prefix:prefix+'pending:'});
+const message=document.getElementById('message');
+const editing=document.getElementById('editing'),preview=document.getElementById('preview');
+const history=document.getElementById('history'),pdf=document.getElementById('pdf');
+let budgetId=storage.getItem(prefix+'active')||'fixture_first';
+let controller=null,stop=[];
+function say(text){message.textContent=text}
+function setPreview(open){editing.hidden=open;preview.hidden=!open;document.getElementById('openPreview').hidden=open}
+async function request(url,opts){
+ const response=await fetch(url,opts);let body;
+ try{body=await response.json()}catch{throw Error('RESPOSTA_DEMO_INVALIDA')}
+ if(!response.ok)throw Error(body.error||'FALHA_DEMO_HTTP_'+response.status);
+ return body;
+}
+async function refreshHistory(){
+ if(!controller)return;
+ const requested=budgetId;
+ try{
+  const data=await request('/api/fixture-revisions?budgetId='+encodeURIComponent(requested));
+  if(requested!==budgetId)return;
+  history.replaceChildren();
+  if(!data.rows.length){const li=document.createElement('li');li.textContent='Nenhuma revisão nesta execução local.';history.append(li)}
+  for(const row of data.rows){
+   const li=document.createElement('li'),a=document.createElement('a');
+   a.href=row.fileUrl;a.textContent='Baixar PDF de teste '+row.revisionId;
+   a.rel='noopener';li.append(a);
+   li.append(document.createTextNode(' — versão '+row.version+' · '+row.state+' · SHA-256 '+row.pdfSha256.slice(0,12)+'…'));
+   history.append(li);
+  }
+ }catch(e){say('Falha no histórico fictício: '+e.message)}
+}
+async function activate(id){
+ for(const dispose of stop)dispose();stop=[];setPreview(false);
+ budgetId=id;storage.setItem(prefix+'active',budgetId);
+ if(!await adapter.load(budgetId))await adapter.create(budgetId,{client:'Cliente fictício',items:[],
+   kitChoice:null,pricing:{unitPrices:{},freight:{incoterm:'FOB',mode:'none'}}});
+ controller=new DraftController({id:budgetId,adapter,durableStore:durable,mutationIds:()=>crypto.randomUUID()});
+ await controller.initialize();
+ stop.push(mountDraftEditor(document.getElementById('client'),controller));
+ stop.push(mountCommercialItems(document.getElementById('items'),controller,fictionalCatalog));
+ stop.push(mountPricingPanel(document.getElementById('pricing'),controller,fictionalCatalog));
+ const mounted=mountProposalPreview(preview,controller,fictionalCatalog,{onBack:()=>setPreview(false)});
+ stop.push(mounted.dispose);
+ stop.push(controller.subscribe(v=>{pdf.disabled=v.status==='saving'||v.status==='conflict';
+   message.textContent='Orçamento fictício '+budgetId+' · versão '+(v.version||'?')+' · '+v.status;
+ }));
+ say('Orçamento fictício '+budgetId+' · edição e cálculos somente locais');
+ await refreshHistory();
+}
+document.getElementById('new').onclick=()=>void activate('fixture_'+crypto.randomUUID().slice(0,8)).catch(e=>say(e.message));
+document.getElementById('save').onclick=()=>void controller.flush().then(v=>say('Rascunho local: '+v.status)).catch(e=>say(e.message));
+document.getElementById('openPreview').onclick=()=>setPreview(true);
+document.getElementById('refreshHistory').onclick=()=>void refreshHistory();
+pdf.onclick=async()=>{
+ pdf.disabled=true;
+ try{
+  const state=await controller.flush();
+  if(state.status!=='saved'||state.pending)throw Error('SALVE_RASCUNHO_ANTES_DO_PDF');
+  const revisionId='rev_'+crypto.randomUUID().slice(0,12),mutationId='mutation_'+crypto.randomUUID().slice(0,12);
+  const result=await request('/api/fixture-revisions',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({budgetId,revisionId,mutationId,version:state.version,draft:state.data})});
+  say('PDF DE TESTE GERADO — revisão '+result.revisionId+' · total fictício R$ '+(result.totalCents/100).toFixed(2)+' · nunca emitido');
+  await refreshHistory();
+ }catch(e){say('PDF não gerado: '+e.message)}
+ finally{pdf.disabled=false}
+};
+try{await activate(budgetId)}catch(e){say('Falha na demonstração isolada: '+e.message)}
+</script></body></html>
