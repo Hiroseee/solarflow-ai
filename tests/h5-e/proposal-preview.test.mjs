@@ -1,0 +1,18 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {composeProposal} from '../../src/h5-e/proposal-preview.mjs';
+import {makeCatalog,addItem,chooseKit,setQuantity,removeItem} from '../../src/h5-c/commercial-items.mjs';
+import {MemoryDraftAdapter,MemoryDurableStore,DraftController} from '../../src/h5-b/draft-engine.mjs';
+const c=makeCatalog([{id:'mod',category:'module',label:'Módulo <script>alert(1)</script>'},{id:'bess',category:'bess',label:'BESS fictício'}]);
+function fixture(kit='12kw'){let d=chooseKit({client:'Cliente fictício',opportunityId:'opp-fixture',proposalId:'draft-fixture',approvedCommercialTerms:null,items:[]},kit);d=addItem(d,c,{productId:'mod',lineId:'m1',quantity:2});d=addItem(d,c,{productId:'bess',lineId:'b1',quantity:1});d.pricing={unitPrices:{mod:10000,bess:50000},freight:{incoterm:'CIF',mode:'manual',cents:1000}};return d;}
+const project=(d=fixture(),opts={})=>composeProposal(d,c,{saveStatus:'saved',version:2,...opts});
+test('proposal preview calculates line and full totals',()=>{const p=project();assert.equal(p.financial.totalCents,71000);assert.equal(p.groups.module[0].subtotalCents,20000);assert.equal(p.groups.bess[0].unitCents,50000);});
+test('kit variants 12 and 15 preserve identity',()=>{assert.equal(project(fixture('12kw')).identity.kitChoice,'12kw');assert.equal(project(fixture('15kw')).identity.kitChoice,'15kw');});
+test('quantity change and removal recalculate',()=>{assert.equal(project(setQuantity(fixture(),c,'m1',4)).financial.totalCents,91000);assert.equal(project(removeItem(fixture(),c,'b1')).financial.totalCents,21000);});
+test('FOB and CIF show expected freight',()=>{const d=fixture();assert.equal(project(d).financial.freightCents,1000);d.pricing.freight={incoterm:'FOB',mode:'none'};assert.equal(project(d).financial.freightCents,0);});
+test('discount fixture approved or refused',()=>{const d=fixture();d.pricing.discount={mode:'absolute',cents:500};assert.equal(project(d).financial,null);assert.equal(project(d,{discountPolicy:{fixtureApproved:true,maxDiscountCents:500}}).financial.totalCents,70500);});
+test('incomplete draft still previews with pending issues',()=>{const p=composeProposal({items:[],client:''},c,{saveStatus:'unsaved'});assert.equal(p.validation.previewAvailable,true);assert.equal(p.validation.readyForIssuance,false);assert.ok(p.validation.issues.includes('NO_VALID_ITEMS'));});
+test('client totals always recomputed',()=>{const d={...fixture(),totalCents:1};assert.equal(project(d).financial.totalCents,71000);});
+test('script shaped content treated as data',()=>{const p=project();assert.match(p.groups.module[0].description,/<script>/);assert.ok(!('html' in p.groups.module[0]));});
+test('unsaved and conflict states never ready',()=>{for(const status of ['unsaved','saving','conflict','retryable_error']){const p=project(fixture(),{saveStatus:status});assert.equal(p.validation.readyForIssuance,false);assert.ok(p.validation.issues.some(x=>/UNSAVED|CONFLICT/.test(x)));}});
+test('deterministic projection',()=>assert.deepEqual(project(),project()));
+test('reopen existing controller and derive identical preview',async()=>{const adapter=new MemoryDraftAdapter(),store=new MemoryDurableStore();await adapter.create('p',fixture());const a=new DraftController({id:'p',adapter,durableStore:store,mutationIds:()=> 'preview-mut'});await a.initialize();await a.edit({pricing:{...fixture().pricing,freight:{incoterm:'FOB',mode:'none'}}});await a.flush();const b=new DraftController({id:'p',adapter,durableStore:store});await b.initialize();assert.equal(project(b.view().data,{version:b.view().version}).financial.totalCents,70000)});
