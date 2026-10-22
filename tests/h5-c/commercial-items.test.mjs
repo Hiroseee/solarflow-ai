@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {KIT_CHOICES,makeCatalog,chooseKit,addItem,setQuantity,removeItem,validateItems,kitAlerts,catalogView} from '../../src/h5-c/commercial-items.mjs';
 import {DraftController,MemoryDraftAdapter,MemoryDurableStore} from '../../src/h5-b/draft-engine.mjs';
-const catalog=makeCatalog([{id:'inv',category:'inverter',label:'Inversor fictício'},{id:'bess',category:'bess',label:'BESS fictício'},{id:'module',category:'module',label:'Módulo fictício'},{id:'acc',category:'accessory',label:'Acessório fictício',available:false}]);
+const catalog=makeCatalog([{id:'inv',category:'inverter',label:'Inversor fictício'},{id:'bess',category:'bess',label:'BESS fictício'},{id:'module',category:'module',label:'Módulo fictício'},{id:'acc',category:'accessory',label:'Acessório fictício'},{id:'oldacc',category:'accessory',label:'Acessório fictício indisponível',available:false}]);
 const init=()=>({kitChoice:null,items:[]});const add=(d,p,id,q=1,extra={})=>addItem(d,catalog,{productId:p,lineId:id,quantity:q,...extra});
 test('kit choices are 12/15 kW',()=>{assert.deepEqual(KIT_CHOICES.map(x=>x.inverterKw),[12,15]);assert.equal(chooseKit(init(),'12kw').kitChoice,'12kw');assert.throws(()=>chooseKit(init(),'10kw'),/INVALID_KIT/);});
 test('catalog has no duplicate product IDs',()=>assert.throws(()=>makeCatalog([{id:'x',category:'module',label:'X'},{id:'x',category:'module',label:'Y'}]),/DUPLICATE_CATALOG/));
@@ -9,8 +9,8 @@ test('products and accessories preserve unique line identity',()=>{let d=chooseK
 test('quantity editing, removal, no implicit price fields',()=>{let d=add(init(),'module','m');d=setQuantity(d,catalog,'m',27);assert.equal(d.items[0].quantity,27);assert.ok(!('price' in d.items[0]));d=removeItem(d,catalog,'m');assert.equal(d.items.length,0);});
 test('reject invalid product, quantity, category payload, orphan accessory',()=>{assert.throws(()=>add(init(),'missing','x'),/UNKNOWN_PRODUCT/);assert.throws(()=>add(init(),'module','x',0),/INVALID_QUANTITY/);assert.throws(()=>add(init(),'acc','x',1,{relatedBessLineId:'bad'}),/ORPHAN_ACCESSORY/);assert.throws(()=>validateItems([{lineId:'a',productId:'module',category:'inverter',quantity:1}],catalog),/CATEGORY_MISMATCH/);});
 test('non-compliant kit generates alerts without blocking editing',()=>{const d=chooseKit(init(),'12kw');assert.ok(kitAlerts(d,catalog).includes('MISSING_MODULE'));assert.equal(d.kitChoice,'12kw');});
-test('unavailable product cannot be inserted into a new kit',()=>assert.throws(()=>add(init(),'acc','not-allowed'),/PRODUCT_UNAVAILABLE/));
-test('catalog shows unavailable entries without silently inserting them',()=>{const view=catalogView(catalog);assert.equal(view.find(p=>p.id==='acc').available,false);});
+test('unavailable product cannot be inserted into a new kit',()=>assert.throws(()=>add(init(),'oldacc','not-allowed'),/PRODUCT_UNAVAILABLE/));
+test('catalog shows unavailable entries without silently inserting them',()=>{const view=catalogView(catalog);assert.equal(view.find(p=>p.id==='oldacc').available,false);});
 test('commercial changes coalesce in existing DraftController and survive refresh',async()=>{let next=0;const db=new MemoryDraftAdapter(),store=new MemoryDurableStore();const id='fake';await db.create(id,{client:'Fixture',kitChoice:null,items:[]});
 const c=new DraftController({id,adapter:db,durableStore:store,mutationIds:()=>String(++next)});await c.initialize();const kit=chooseKit(c.view().data,'12kw');await c.edit(kit);await c.edit(add(c.view().data,'module','m1',20));await c.edit(setQuantity(c.view().data,catalog,'m1',24));await c.flush();assert.equal((await db.load(id)).data.items[0].quantity,24);
 const other=new DraftController({id,adapter:db,durableStore:store,mutationIds:()=>String(++next)});await other.initialize();assert.equal(other.view().data.items[0].lineId,'m1');});
