@@ -31,7 +31,7 @@ let audit=await db.query("select count(*)::int n from public.audit_log where tab
 await db.query("update public.budgets set foundation_issued_snapshot='{\"issued\":true}'::jsonb where id=$1",[b[0]]);
 let immutable=false;try{await db.query("update public.budgets set foundation_issued_snapshot='{\"issued\":false}'::jsonb where id=$1",[b[0]])}catch(e){immutable=e.code==='23514'}assert(immutable,'SNAPSHOT_MUTATION_ALLOWED');
 const invalid=await db.query("select public.h5a_update_draft($1,2,'{}'::jsonb) v",[b[0]]);assert(invalid.rows[0].v===null,'ISSUED_DRAFT_CHANGED');
-let rawLocked=false;try{await db.query("update public.budgets set raw_data='{\\"tampered\\":true}'::jsonb where id=$1",[b[0]])}catch(e){rawLocked=e.code==='23514'}assert(rawLocked,'ISSUED_RAW_DATA_MODIFICATION_ALLOWED');
+let rawLocked=false;try{await db.query("update public.budgets set raw_data=$2::jsonb where id=$1",[b[0],JSON.stringify({tampered:true})])}catch(e){rawLocked=e.code==='23514'}assert(rawLocked,'ISSUED_RAW_DATA_MODIFICATION_ALLOWED');
 S.targeted='PASS';S.results.tests={unique:true,optimistic:true,stale:true,audit:true,snapshot_immutable:true,issued_locked:true};log('TARGETED_PASS');
 S.phase='ROLLBACK';await db.query(DOWN);let back=await fingerprint(db);assert(back.sha256===before.sha256,'SCHEMA_FINGERPRINT_NOT_RESTORED '+JSON.stringify({before,back}));S.rollback='PASS';log('ROLLBACK_PASS',JSON.stringify(back));
 S.phase='REAPPLY';await db.query(UP);const re=await fingerprint(db);assert(re.sha256===after.sha256,'REAPPLY_FINGERPRINT_DIFFERENT');S.reapply='PASS';S.results.reapply=re;S.phase='DONE';log('REAPPLY_PASS',JSON.stringify(re));
