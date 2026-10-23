@@ -124,3 +124,44 @@ test('HTTP refuses tampered financial payload, no fixture revision committed',as
  const list=await(await fetch(base+'/api/fixture-revisions?budgetId=fictional_budget')).json();
  assert.equal(list.rows.length,0);
 });
+
+
+test('local demo static module routes serve imports and deny source outside allowlist',async(t)=>{
+ const base=await start(t);
+ for(const path of [
+  '/src/h5-b/draft-engine.mjs','/src/h5-b/draft-editor.mjs',
+  '/src/h5-c/commercial-items.mjs','/src/h5-c/commercial-items-ui.mjs',
+  '/src/h5-d/pricing-engine.mjs','/src/h5-d/pricing-ui.mjs',
+  '/src/h5-e/proposal-preview.mjs','/src/h5-e/proposal-preview-ui.mjs',
+  '/src/h5-h/fictional-catalog.mjs','/src/h5-h/isolated-local-adapter.mjs'
+ ]){
+  const res=await fetch(base+path);
+  assert.equal(res.status,200,path);
+  assert.match(res.headers.get('content-type'),/javascript/,path);
+  assert.ok((await res.text()).length>50,path);
+ }
+ assert.equal((await fetch(base+'/package.json')).status,404);
+ assert.equal((await fetch(base+'/src/h5-h/local-server.mjs')).status,404);
+});
+test('server restart drops in-memory revision history but retains browser-local draft fixture',async()=>{
+ const browser={items:new Map(),getItem(k){return this.items.get(k)??null},
+  setItem(k,v){this.items.set(k,String(v))},removeItem(k){this.items.delete(k)}};
+ const adapter=new IsolatedLocalDraftAdapter(browser);
+ await adapter.create('fictional_budget',empty());
+ await adapter.save({id:'fictional_budget',expectedVersion:1,data:complete(),mutationId:'local-1'});
+ const one=createIntegratedFixtureServer();
+ await new Promise(resolve=>one.listen(0,'127.0.0.1',resolve));
+ const first='http://127.0.0.1:'+one.address().port;
+ const record=await fetch(first+'/api/fixture-revisions',{method:'POST',
+  headers:{'Content-Type':'application/json'},body:JSON.stringify(request())});
+ assert.equal(record.status,201);
+ await new Promise(resolve=>one.close(resolve));
+ const secondServer=createIntegratedFixtureServer();
+ await new Promise(resolve=>secondServer.listen(0,'127.0.0.1',resolve));
+ try{
+  const second='http://127.0.0.1:'+secondServer.address().port;
+  const history=await(await fetch(second+'/api/fixture-revisions?budgetId=fictional_budget')).json();
+  assert.equal(history.rows.length,0);
+  assert.equal((await new IsolatedLocalDraftAdapter(browser).load('fictional_budget')).data.items.length,6);
+ }finally{await new Promise(resolve=>secondServer.close(resolve))}
+});
