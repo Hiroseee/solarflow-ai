@@ -1,2 +1,2 @@
-// H5-H integrated disposable PostgreSQL/Auth/REST/JWT targeted runner. H5-G original preserved separately.
-import './h5h_pg_integrated_runner.mjs';
+// Temporary H5-H reproducible installation certification, FREE helper only.
+import './h5h_lockcheck_runner.mjs';
