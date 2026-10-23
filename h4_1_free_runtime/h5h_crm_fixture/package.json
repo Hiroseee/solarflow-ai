@@ -1,0 +1,20 @@
+{
+  "name": "crm-bess",
+  "version": "1.0.0-foundation.1",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "verify:artifact": "node scripts/verify-artifact.mjs",
+    "test": "node --test tests/unit/*.test.mjs",
+    "test:h5-f": "node --test tests/h5-f/*.test.mjs",
+    "demo:h5-h": "node src/h5-h/local-server.mjs",
+    "test:h5-h": "node --test tests/h5-h/*.test.mjs"
+  },
+  "dependencies": {
+    "pdfkit": "0.17.2"
+  }
+}
